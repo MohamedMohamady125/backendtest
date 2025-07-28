@@ -1,5 +1,5 @@
 from passlib.hash import bcrypt
 
-password = "MIdo@2013"
+password = "MmmM1234"
 password_hash = bcrypt.hash(password)
 print(password_hash)
