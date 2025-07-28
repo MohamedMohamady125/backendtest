@@ -250,3 +250,38 @@ def prewarm_connection_pool(num_connections=5):
     except Exception as e:
         logger.error(f"❌ Pre-warming failed: {e}")
         return 0
+
+# Thread-local storage for compatibility
+_local = threading.local()
+
+def cleanup_connections():
+    """Clean up thread-local connections (compatibility function)"""
+    if hasattr(_local, 'connection') and _local.connection:
+        try:
+            _local.connection.close()
+        except:
+            pass
+        _local.connection = None
+
+def force_pool_cleanup():
+    """Force cleanup of all pool connections"""
+    global connection_pool
+    if connection_pool:
+        try:
+            # Try to reset the pool
+            reset_connection_pool()
+            logger.info("🧹 Forced pool cleanup completed")
+        except Exception as e:
+            logger.error(f"❌ Pool cleanup failed: {e}")
+
+def monitor_pool_health():
+    """Monitor pool health and auto-recover if needed"""
+    try:
+        status = get_pool_status()
+        if status.get("status") != "available":
+            logger.warning("⚠️ Pool unhealthy, attempting reset...")
+            reset_connection_pool()
+        return status
+    except Exception as e:
+        logger.error(f"❌ Pool monitoring failed: {e}")
+        return {"status": "monitoring_failed", "error": str(e)}
