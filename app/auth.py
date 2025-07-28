@@ -199,14 +199,10 @@ def _register_athlete_super_optimized(user: AthleteRegistration):
 
 def _login_super_optimized(user: UserLogin):
     """
-    SUPER OPTIMIZED - Single query with auto-athlete creation = 2-3x faster
+    BULLETPROOF login with debug info
     """
-    start_time = time.time()
-    print(f"🚀 FAST login for: {user.email}")
-
     with get_db_cursor() as (cursor, connection):
         try:
-            # OPTIMIZATION: Single query to get user and check athlete status
             cursor.execute("""
                 SELECT 
                     u.*,
@@ -218,11 +214,20 @@ def _login_super_optimized(user: UserLogin):
             
             db_user = cursor.fetchone()
 
-            if not db_user or not bcrypt.verify(user.password, db_user["password_hash"]):
-                print(f"❌ Invalid credentials for: {user.email}")
-                raise HTTPException(status_code=401, detail="Invalid email or password")
+            if not db_user:
+                raise HTTPException(status_code=401, detail="User not found")
+            
+            # Test password verification
+            password_match = bcrypt.verify(user.password, db_user["password_hash"])
+            
+            if not password_match:
+                # Return debug info for failed login (remove in production)
+                raise HTTPException(
+                    status_code=401, 
+                    detail=f"Invalid password. Hash length: {len(db_user['password_hash'])}, Password length: {len(user.password)}"
+                )
 
-            # OPTIMIZATION: Auto-create athlete record if needed (in same transaction)
+            # Auto-create athlete record if needed
             if db_user["role"] == "athlete" and db_user.get("approved", False) and not db_user["athlete_exists"]:
                 cursor.execute("INSERT INTO athletes (id, user_id) VALUES (%s, %s)", 
                              (db_user["id"], db_user["id"]))
@@ -234,9 +239,6 @@ def _login_super_optimized(user: UserLogin):
                 settings.JWT_SECRET,
                 algorithm=settings.JWT_ALGORITHM,
             )
-
-            execution_time = time.time() - start_time
-            print(f"✅ SUPER FAST login: {execution_time:.3f}s")
 
             return {
                 "token": token,
@@ -254,8 +256,7 @@ def _login_super_optimized(user: UserLogin):
         except HTTPException:
             raise
         except Exception as e:
-            print(f"❌ Login error: {e}")
-            raise HTTPException(status_code=500, detail="Login failed")
+            raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
 
 def _forgot_password_super_optimized(data: ForgotPasswordRequest):
     """
