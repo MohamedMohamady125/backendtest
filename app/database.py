@@ -183,16 +183,63 @@ def get_pool_status():
         return {"status": "unavailable", "pool_size": 0}
 
 # Legacy compatibility
+# Add these settings to your database configuration
+
+# In your database.py or connection setup:
+
 def get_connection():
-    """Legacy function for backward compatibility"""
-    if connection_pool:
+    """Get database connection with strict consistency settings"""
+    connection = mysql.connector.connect(
+        host=settings.DB_HOST,
+        user=settings.DB_USER,
+        password=settings.DB_PASSWORD,
+        database=settings.DB_NAME,
+        
+        # ✅ CRITICAL: Add these for consistency
+        autocommit=False,  # Explicit transaction control
+        isolation_level='READ-COMMITTED',  # Prevent dirty reads
+        sql_mode='STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION',
+        
+        # Connection pool settings
+        pool_name='mypool',
+        pool_size=20,
+        pool_reset_session=True,  # Reset session state
+        
+        # Timeouts
+        connection_timeout=10,
+        
+        # Character set
+        charset='utf8mb4',
+        collation='utf8mb4_unicode_ci'
+    )
+    
+    # ✅ CRITICAL: Set session variables for consistency
+    cursor = connection.cursor()
+    cursor.execute("SET SESSION innodb_lock_wait_timeout = 50")
+    cursor.execute("SET SESSION lock_wait_timeout = 50") 
+    cursor.execute("SET SESSION tx_isolation = 'READ-COMMITTED'")
+    cursor.close()
+    
+    return connection
+
+# ✅ OPTIONAL: Add a connection wrapper with retry logic
+import time
+import random
+
+def get_connection_with_retry(max_retries=3):
+    """Get database connection with retry logic for better reliability"""
+    for attempt in range(max_retries):
         try:
-            return connection_pool.get_connection()
-        except mysql.connector.PoolError:
-            logger.warning("🔄 Pool exhausted, returning direct connection")
-            return _get_direct_connection()
-    else:
-        return _get_direct_connection()
+            return get_connection()
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
+            
+            wait_time = (2 ** attempt) + random.uniform(0, 1)  # Exponential backoff
+            print(f"❌ Connection attempt {attempt + 1} failed, retrying in {wait_time:.2f}s...")
+            time.sleep(wait_time)
+    
+    raise Exception("Failed to connect after all retries")
 
 def get_connection_stats():
     """Get basic connection statistics"""
