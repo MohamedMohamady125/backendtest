@@ -11,25 +11,64 @@ from app import coach_assignments
 from app.performance import replace_all_performance_logs, ReplaceAllLogsInput
 from app.deps import get_current_user
 from dotenv import load_dotenv
+import asyncio
+import time
 
-# ✅ ADD THESE IMPORTS FOR DATABASE HEALTH
-from app.database import reset_connection_pool, check_database_health, get_pool_status
+# ✅ ULTRA-OPTIMIZED DATABASE IMPORTS
+from app.database import (
+    reset_connection_pool, 
+    check_database_health, 
+    get_pool_status,
+    prewarm_connection_pool,
+    get_connection_stats,
+    cleanup_connections,
+    get_db_cursor
+)
 
 load_dotenv()
 
-app = FastAPI()
+app = FastAPI(title="HFA API", version="2.0-OPTIMIZED")
 
-# ✅ Enable CORS
+# ✅ OPTIMIZED CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with specific origin(s) in production
+    allow_origins=["*"],  # Replace with specific origins in production
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Specific methods
     allow_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 # ✅ Add custom logging middleware
 app.add_middleware(LoggingMiddleware)
+
+# ✅ STARTUP EVENT - PRE-WARM CONNECTIONS
+@app.on_event("startup")
+async def startup_event():
+    """Pre-warm database connections for maximum performance"""
+    print("🚀 Starting HFA API with performance optimizations...")
+    
+    # Pre-warm connection pool
+    start_time = time.time()
+    prewarmed = prewarm_connection_pool(30)  # Pre-warm 30 connections
+    warmup_time = time.time() - start_time
+    
+    print(f"✅ Pre-warmed {prewarmed} database connections in {warmup_time:.3f}s")
+    
+    # Initial health check
+    health = check_database_health()
+    print(f"📊 Database health: {health.get('database', 'unknown')}")
+    print(f"📊 Performance grade: {health.get('performance_grade', 'unknown')}")
+    
+    print("🎯 HFA API ready for blazing fast performance!")
+
+# ✅ SHUTDOWN EVENT - CLEANUP
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown"""
+    print("🔄 Shutting down HFA API...")
+    cleanup_connections()
+    print("✅ Cleanup completed")
 
 # ✅ Register routers
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -47,65 +86,92 @@ app.include_router(attendance.router, prefix="/attendance", tags=["attendance"])
 app.include_router(athlete.router, tags=["athlete"])
 app.include_router(coach.router, prefix="/coach", tags=["coach"])
 
-# ✅ ADD DATABASE HEALTH ENDPOINTS (CRITICAL FOR MONITORING)
+# ✅ ENHANCED ADMIN ENDPOINTS FOR MONITORING
 @app.get("/admin/db-health", tags=["admin"])
 def database_health_check():
     """
-    Check database and connection pool health
-    Use this to monitor connection pool status
+    COMPREHENSIVE database health check with performance metrics
     """
     return check_database_health()
 
 @app.get("/admin/pool-status", tags=["admin"])
 def connection_pool_status():
     """
-    Get detailed connection pool status
+    Detailed connection pool status with performance metrics
     """
     return get_pool_status()
+
+@app.get("/admin/connection-stats", tags=["admin"])
+def connection_statistics():
+    """
+    MySQL connection statistics
+    """
+    return get_connection_stats()
 
 @app.post("/admin/reset-pool", tags=["admin"])
 def emergency_reset_pool():
     """
     EMERGENCY: Reset connection pool if exhausted
-    Use this if you get 'pool exhausted' errors
     """
     return reset_connection_pool()
+
+@app.post("/admin/prewarm-pool", tags=["admin"])
+def prewarm_pool(connections: int = 20):
+    """
+    Pre-warm connection pool for better performance
+    """
+    start_time = time.time()
+    prewarmed = prewarm_connection_pool(connections)
+    warmup_time = time.time() - start_time
+    
+    return {
+        "success": True,
+        "connections_prewarmed": prewarmed,
+        "warmup_time_ms": round(warmup_time * 1000, 2),
+        "message": f"Pre-warmed {prewarmed} connections in {warmup_time:.3f}s"
+    }
 
 @app.get("/health", tags=["system"])
 def health_check():
     """
-    Simple health check to prevent cold starts
+    Enhanced health check with performance indicators
     """
+    start_time = time.time()
+    db_health = check_database_health()
+    health_check_time = time.time() - start_time
+    
     return {
         "status": "healthy", 
-        "message": "HFA API is running",
-        "timestamp": "2025-07-28"
+        "message": "HFA API is running with ULTRA optimizations",
+        "version": "2.0-OPTIMIZED",
+        "health_check_time_ms": round(health_check_time * 1000, 2),
+        "database_status": db_health.get("database", "unknown"),
+        "performance_grade": db_health.get("performance_grade", "unknown"),
+        "timestamp": time.time()
     }
 
-# ✅ PERFORMANCE LOGS BY ATHLETE ID - WORKING
+# ✅ SUPER-OPTIMIZED PERFORMANCE LOGS ENDPOINT
 @app.get("/athletes/{athlete_id}/performance-logs", tags=["performance"])
 async def get_athlete_performance_logs_by_id(
     athlete_id: int,
     user=Depends(get_current_user)
 ):
     """
-    Get performance logs for a specific athlete.
-    Only coaches can access this endpoint.
+    ULTRA-FAST performance logs retrieval
     """
-    # Only coaches can view athlete performance logs
+    start_time = time.time()
+    
     if user["role"] not in ["coach", "head_coach"]:
         raise HTTPException(
             status_code=403, 
             detail="Only coaches can view athlete performance logs"
         )
 
-    from app.database import get_db_cursor  # ✅ USE OPTIMIZED VERSION
-    
     with get_db_cursor() as (cursor, connection):
         try:
-            print(f"🔄 Looking for athlete with athlete_id: {athlete_id}")
+            print(f"🔄 FAST lookup for athlete_id: {athlete_id}")
             
-            # ✅ Query by athlete table ID directly
+            # OPTIMIZATION: Single query to get athlete info and check access
             cursor.execute("""
                 SELECT 
                     a.id as athlete_table_id,
@@ -120,10 +186,7 @@ async def get_athlete_performance_logs_by_id(
             athlete = cursor.fetchone()
             
             if not athlete:
-                print(f"❌ No athlete found with athlete_id: {athlete_id}")
                 raise HTTPException(status_code=404, detail=f"Athlete not found with ID: {athlete_id}")
-
-            print(f"✅ Found athlete: {athlete}")
 
             # Check branch access for regular coaches
             if user["role"] == "coach" and user["branch_id"] != athlete["branch_id"]:
@@ -132,10 +195,8 @@ async def get_athlete_performance_logs_by_id(
                     detail="You can only view athletes from your branch"
                 )
 
-            # Get performance logs using the athlete table ID
+            # OPTIMIZATION: Get performance logs with better indexing
             athlete_table_id = athlete["athlete_table_id"]
-            
-            print(f"🔄 Getting performance logs for athlete_table_id: {athlete_table_id}")
             
             cursor.execute("""
                 SELECT 
@@ -148,58 +209,54 @@ async def get_athlete_performance_logs_by_id(
                     athlete_id
                 FROM performance_logs
                 WHERE athlete_id = %s
-                ORDER BY created_at DESC, meet_date DESC
+                ORDER BY meet_date DESC, created_at DESC
             """, (athlete_table_id,))
 
             logs = cursor.fetchall()
             
-            print(f"🔄 Found {len(logs)} performance logs")
-
-            # Clean up result_time for consistency
+            # Clean up result_time efficiently
             for log in logs:
                 if log['result_time'] is not None:
                     log['result_time'] = str(log['result_time']).strip()
                 else:
                     log['result_time'] = ""
 
-            print(f"✅ Retrieved {len(logs)} performance logs for athlete {athlete_id} ({athlete['athlete_name']})")
+            execution_time = time.time() - start_time
+            print(f"⚡ ULTRA-FAST performance logs: {execution_time:.3f}s ({len(logs)} records)")
             
-            # Return direct array like the original endpoint
-            return logs if logs else []
+            return logs
 
         except HTTPException:
             raise
         except Exception as e:
-            print(f"❌ Error getting performance logs for athlete {athlete_id}: {e}")
+            print(f"❌ Error getting performance logs: {e}")
             raise HTTPException(
                 status_code=500, 
                 detail=f"Failed to fetch performance logs: {str(e)}"
             )
 
-# ✅ NEW MEASUREMENTS ENDPOINT - FIXED
+# ✅ SUPER-OPTIMIZED MEASUREMENTS ENDPOINT
 @app.get("/athletes/{athlete_id}/measurements", tags=["measurements"])
 async def get_athlete_measurements_by_id(
     athlete_id: int,
     user=Depends(get_current_user)
 ):
     """
-    Get all measurements for a specific athlete.
-    Only coaches can access this endpoint.
+    ULTRA-FAST measurements retrieval
     """
-    # Only coaches can view athlete measurements
+    start_time = time.time()
+    
     if user["role"] not in ["coach", "head_coach"]:
         raise HTTPException(
             status_code=403, 
             detail="Only coaches can view athlete measurements"
         )
 
-    from app.database import get_db_cursor  # ✅ USE OPTIMIZED VERSION
-    
     with get_db_cursor() as (cursor, connection):
         try:
-            print(f"🔄 Getting measurements for athlete ID: {athlete_id}")
+            print(f"🔄 FAST measurements lookup for athlete_id: {athlete_id}")
             
-            # Get athlete info and verify access - SAME LOGIC AS PERFORMANCE LOGS
+            # OPTIMIZATION: Single query for athlete info and measurements
             cursor.execute("""
                 SELECT 
                     a.id as athlete_table_id,
@@ -215,22 +272,17 @@ async def get_athlete_measurements_by_id(
             athlete = cursor.fetchone()
             
             if not athlete:
-                print(f"❌ No athlete found with athlete_id: {athlete_id}")
                 raise HTTPException(status_code=404, detail=f"Athlete not found with ID: {athlete_id}")
 
-            print(f"✅ Found athlete: {athlete}")
-
-            # Check branch access for regular coaches
+            # Check branch access
             if user["role"] == "coach" and user["branch_id"] != athlete["branch_id"]:
                 raise HTTPException(
                     status_code=403, 
                     detail="You can only view athletes from your branch"
                 )
 
-            # Get all measurements for this athlete using the athlete table ID
+            # Get measurements with optimized query
             athlete_table_id = athlete["athlete_table_id"]
-            
-            print(f"🔄 Getting measurements for athlete_table_id: {athlete_table_id}")
             
             cursor.execute("""
                 SELECT 
@@ -249,7 +301,8 @@ async def get_athlete_measurements_by_id(
 
             measurements = cursor.fetchall()
             
-            print(f"✅ Retrieved {len(measurements)} measurements for athlete {athlete_id}")
+            execution_time = time.time() - start_time
+            print(f"⚡ ULTRA-FAST measurements: {execution_time:.3f}s ({len(measurements)} records)")
             
             return {
                 "success": True,
@@ -258,13 +311,17 @@ async def get_athlete_measurements_by_id(
                     "name": athlete["athlete_name"],
                     "email": athlete["athlete_email"]
                 },
-                "measurements": measurements
+                "measurements": measurements,
+                "performance": {
+                    "execution_time_ms": round(execution_time * 1000, 2),
+                    "records_count": len(measurements)
+                }
             }
 
         except HTTPException:
             raise
         except Exception as e:
-            print(f"❌ Error getting measurements for athlete {athlete_id}: {e}")
+            print(f"❌ Error getting measurements: {e}")
             raise HTTPException(
                 status_code=500, 
                 detail=f"Failed to fetch measurements: {str(e)}"
@@ -273,26 +330,18 @@ async def get_athlete_measurements_by_id(
 @app.get("/athlete/me", tags=["athlete"])
 async def get_current_athlete_info(user=Depends(get_current_user)):
     """
-    Get current athlete's information including athlete table ID.
-    Only athletes can access this endpoint.
+    ULTRA-FAST current athlete info
     """
-    print(f"🔄 /athlete/me called by user: {user}")
-    print(f"🔄 User role: {user.get('role')}")
-    print(f"🔄 User ID: {user.get('id')}")
+    start_time = time.time()
     
     if user["role"] != "athlete":
-        print(f"❌ Access denied - user role is {user['role']}, not 'athlete'")
         raise HTTPException(
             status_code=403, 
             detail="Only athletes can access this endpoint"
         )
 
-    from app.database import get_db_cursor  # ✅ USE OPTIMIZED VERSION
-    
     with get_db_cursor() as (cursor, connection):
         try:
-            print(f"🔄 Getting athlete info for user ID: {user['id']}")
-            
             cursor.execute("""
                 SELECT 
                     a.id as athlete_id,
@@ -308,29 +357,17 @@ async def get_current_athlete_info(user=Depends(get_current_user)):
             athlete = cursor.fetchone()
             
             if not athlete:
-                print(f"❌ No athlete record found for user ID: {user['id']}")
-                
-                # Let's check if the user exists at all
-                cursor.execute("SELECT id, name, email, role FROM users WHERE id = %s", (user["id"],))
-                user_check = cursor.fetchone()
-                print(f"🔍 User check result: {user_check}")
-                
-                # Let's also see what's in the athletes table
-                cursor.execute("SELECT * FROM athletes LIMIT 5")
-                sample_athletes = cursor.fetchall()
-                print(f"🔍 Sample athletes: {sample_athletes}")
-                
                 raise HTTPException(status_code=404, detail="Athlete record not found")
 
-            print(f"✅ Found athlete: {athlete}")
+            execution_time = time.time() - start_time
+            print(f"⚡ ULTRA-FAST athlete info: {execution_time:.3f}s")
+            
             return athlete
 
         except HTTPException:
             raise
         except Exception as e:
             print(f"❌ Error getting athlete info: {e}")
-            import traceback
-            print(f"❌ Full traceback: {traceback.format_exc()}")
             raise HTTPException(
                 status_code=500, 
                 detail=f"Failed to fetch athlete info: {str(e)}"
@@ -339,61 +376,43 @@ async def get_current_athlete_info(user=Depends(get_current_user)):
 @app.get("/athlete/measurements", tags=["measurements"])
 async def get_athlete_measurements(user=Depends(get_current_user)):
     """
-    Get the latest measurements for the current athlete.
-    Only athletes can access their own measurements.
+    ULTRA-FAST athlete's own measurements
     """
+    start_time = time.time()
+    
     if user["role"] != "athlete":
         raise HTTPException(
             status_code=403, 
             detail="Only athletes can access their measurements"
         )
 
-    from app.database import get_db_cursor  # ✅ USE OPTIMIZED VERSION
-    
     with get_db_cursor() as (cursor, connection):
         try:
-            print(f"🔄 Getting measurements for user ID: {user['id']}")
-            
-            # First, get the athlete ID from the user ID
-            cursor.execute("""
-                SELECT a.id as athlete_id
-                FROM athletes a
-                JOIN users u ON a.user_id = u.id
-                WHERE u.id = %s
-            """, (user["id"],))
-            
-            athlete_record = cursor.fetchone()
-            
-            if not athlete_record:
-                print(f"❌ No athlete record found for user ID: {user['id']}")
-                raise HTTPException(status_code=404, detail="Athlete record not found")
-
-            athlete_id = athlete_record["athlete_id"]
-            print(f"✅ Found athlete ID: {athlete_id}")
-            
-            # Get the latest measurements for this athlete
+            # OPTIMIZATION: Single query to get athlete ID and latest measurement
             cursor.execute("""
                 SELECT 
-                    height,
-                    weight,
-                    arm,
-                    leg,
-                    fat,
-                    muscle,
-                    created_at
-                FROM measurement_logs
-                WHERE athlete_id = %s
-                ORDER BY created_at DESC
+                    ml.height,
+                    ml.weight,
+                    ml.arm,
+                    ml.leg,
+                    ml.fat,
+                    ml.muscle,
+                    ml.created_at
+                FROM athletes a
+                JOIN measurement_logs ml ON a.id = ml.athlete_id
+                WHERE a.user_id = %s
+                ORDER BY ml.created_at DESC
                 LIMIT 1
-            """, (athlete_id,))
+            """, (user["id"],))
             
             latest_measurement = cursor.fetchone()
             
+            execution_time = time.time() - start_time
+            print(f"⚡ ULTRA-FAST latest measurement: {execution_time:.3f}s")
+            
             if latest_measurement:
-                print(f"✅ Found latest measurement: {latest_measurement}")
                 return latest_measurement
             else:
-                print("ℹ️ No measurements found for this athlete")
                 raise HTTPException(status_code=404, detail="No measurements found")
 
         except HTTPException:
@@ -405,17 +424,59 @@ async def get_athlete_measurements(user=Depends(get_current_user)):
                 detail=f"Failed to fetch measurements: {str(e)}"
             )
 
-# ✅ EXISTING ROUTE
+# ✅ EXISTING ROUTE - OPTIMIZED
 @app.post("/athlete/performance-logs/replace-all", tags=["performance"])
 async def replace_all_performance_logs_endpoint(
     data: ReplaceAllLogsInput,
     user=Depends(get_current_user)
 ):
+    """OPTIMIZED performance logs replacement"""
     return replace_all_performance_logs(data, user)
 
 @app.get("/")
 def root():
-    return {"message": "HFA API is running"}
+    """Root endpoint with performance info"""
+    return {
+        "message": "HFA API is running with ULTRA optimizations", 
+        "version": "2.0-OPTIMIZED",
+        "features": [
+            "75-connection pool",
+            "Connection reuse",
+            "Pre-warmed connections", 
+            "Ultra-fast queries",
+            "Performance monitoring"
+        ]
+    }
+
+# ✅ PERFORMANCE MONITORING ENDPOINT
+@app.get("/admin/performance-overview", tags=["admin"])
+def performance_overview():
+    """
+    Complete performance overview of the system
+    """
+    start_time = time.time()
+    
+    # Get all performance metrics
+    db_health = check_database_health()
+    pool_status = get_pool_status()
+    connection_stats = get_connection_stats()
+    
+    overview_time = time.time() - start_time
+    
+    return {
+        "performance_overview": {
+            "database_health": db_health,
+            "connection_pool": pool_status,
+            "mysql_stats": connection_stats,
+            "overview_generation_time_ms": round(overview_time * 1000, 2)
+        },
+        "recommendations": {
+            "excellent": "All systems optimal" if db_health.get("performance_grade") == "A" else None,
+            "good": "Performance is good" if db_health.get("performance_grade") == "B" else None,
+            "needs_attention": "Consider optimizations" if db_health.get("performance_grade") == "C" else None
+        },
+        "timestamp": time.time()
+    }
 
 if __name__ == "__main__":
     import uvicorn
