@@ -1,4 +1,4 @@
-# app/config.py - FIXED VERSION
+# app/config.py - FIXED VERSION with VAPID variables
 import os
 from dotenv import load_dotenv
 
@@ -22,6 +22,11 @@ class Settings:
         self.SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
         self.FROM_EMAIL = os.getenv("FROM_EMAIL")
         
+        # VAPID Configuration - MISSING VARIABLES ADDED
+        self.VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
+        self.VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY")
+        self.VAPID_EMAIL = os.getenv("VAPID_EMAIL")
+        
         # Debug output
         print("=" * 50)
         print("🔧 FASTAPI CONFIGURATION")
@@ -32,6 +37,15 @@ class Settings:
         print(f"🔍 JWT_ALGORITHM: {self.JWT_ALGORITHM}")
         print(f"🔍 JWT_SECRET length: {len(self.JWT_SECRET)}")
         print("=" * 50)
+        
+        # VAPID Debug output
+        vapid_private_preview = self.VAPID_PRIVATE_KEY[:20] + "..." if self.VAPID_PRIVATE_KEY else "None"
+        vapid_public_preview = self.VAPID_PUBLIC_KEY[:20] + "..." if self.VAPID_PUBLIC_KEY else "None"
+        
+        print(f"🔧 Debug VAPID_PRIVATE_KEY: {vapid_private_preview}")
+        print(f"🔧 Debug VAPID_PUBLIC_KEY: {vapid_public_preview}")
+        print(f"🔧 Debug VAPID_EMAIL: {self.VAPID_EMAIL}")
+        print(f"🔧 Environment has {len(os.environ)} variables")
 
 # Create global settings instance
 settings = Settings()
