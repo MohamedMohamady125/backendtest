@@ -1,4 +1,4 @@
-# app/database.py - AGGRESSIVE CONNECTION OPTIMIZATION
+# app/database.py - AGGRESSIVE CONNECTION OPTIMIZATION (Fixed)
 import mysql.connector
 from mysql.connector import pooling
 from contextlib import contextmanager
@@ -59,6 +59,20 @@ except Exception as e:
 
 # Global connection cache (risky but fast)
 _thread_local = threading.local()
+
+# LEGACY FUNCTION - Keep for backward compatibility
+def get_connection():
+    """
+    Legacy get_connection function - kept for backward compatibility
+    Other files still import this, so we need to keep it
+    """
+    if connection_pool:
+        return connection_pool.get_connection()
+    else:
+        return mysql.connector.connect(**{
+            k: v for k, v in DB_CONFIG.items() 
+            if k not in ['pool_name', 'pool_size', 'pool_reset_session']
+        })
 
 def get_cached_connection():
     """
@@ -140,7 +154,3 @@ def warm_connection_pool():
             logger.warning(f"❌ Failed to warm connection {i+1}: {e}")
     
     logger.info("🔥 Connection pool warmed!")
-
-# Expected performance improvement:
-# Connection time: 150-300ms → 10-50ms (80% faster)
-# Total request time: 600-1000ms → 150-300ms (70% faster)
