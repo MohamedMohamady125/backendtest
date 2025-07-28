@@ -164,18 +164,27 @@ def get_coach_assigned_branches(user=Depends(get_current_user)):
         cursor.close()
         conn.close()
 
-# ✅ NEW: Set active branch for coach
+# ✅ UPDATED: Set active branch for coach OR head coach
 @router.post("/set-active-branch/{branch_id}")
 def set_coach_active_branch(branch_id: int, user=Depends(get_current_user)):
-    """Set the active branch for a coach"""
+    """Set the active branch for a coach OR head coach"""
     if user["role"] not in ["coach", "head_coach"]:
-        raise HTTPException(status_code=403, detail="Only coaches can set active branch")
+        raise HTTPException(status_code=403, detail="Only coaches and head coaches can set active branch")
 
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
     try:
-        print(f"🔍 Setting active branch {branch_id} for {user['role']} {user['name']}")
+        print(f"🔍 Setting active branch {branch_id} for {user['role']} {user['name']} (ID: {user['id']})")
+        
+        # ✅ LOCK the user row to prevent race conditions
+        cursor.execute("SELECT id, name, branch_id FROM users WHERE id = %s FOR UPDATE", (user["id"],))
+        current_user = cursor.fetchone()
+        
+        if not current_user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        print(f"🔍 Current branch_id: {current_user['branch_id']}, New branch_id: {branch_id}")
         
         # Check if branch exists
         cursor.execute("SELECT id, name FROM branches WHERE id = %s", (branch_id,))
@@ -184,9 +193,14 @@ def set_coach_active_branch(branch_id: int, user=Depends(get_current_user)):
             print(f"❌ Branch {branch_id} not found")
             raise HTTPException(status_code=404, detail="Branch not found")
 
-        # For regular coaches, verify they are assigned to this branch
-        if user["role"] == "coach":
-            print(f"🔍 Verifying coach assignment to branch {branch_id}")
+        # ✅ DIFFERENT LOGIC FOR EACH ROLE
+        if user["role"] == "head_coach":
+            # Head coaches can access ANY branch
+            print(f"✅ HEAD COACH can access any branch")
+            
+        elif user["role"] == "coach":
+            # Regular coaches must be assigned to this branch
+            print(f"🔍 Verifying COACH assignment to branch {branch_id}")
             cursor.execute("""
                 SELECT id FROM coach_assignments 
                 WHERE user_id = %s AND branch_id = %s
@@ -200,24 +214,39 @@ def set_coach_active_branch(branch_id: int, user=Depends(get_current_user)):
                     detail="You are not assigned to this branch"
                 )
             print(f"✅ Coach assignment verified")
-        else:
-            print(f"✅ Head coach can access any branch")
 
-        # Update user's current branch
+        # ✅ UPDATE with verification
         cursor.execute("""
             UPDATE users 
             SET branch_id = %s 
             WHERE id = %s
         """, (branch_id, user["id"]))
 
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=500, detail="Failed to update user branch")
+
         conn.commit()
-        print(f"✅ Active branch set to {branch['name']} for {user['name']}")
+        
+        # ✅ VERIFY the update worked
+        cursor.execute("SELECT branch_id FROM users WHERE id = %s", (user["id"],))
+        verification = cursor.fetchone()
+        
+        if verification['branch_id'] != branch_id:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Branch switch verification failed. Expected: {branch_id}, Got: {verification['branch_id']}"
+            )
+        
+        print(f"✅ {user['role'].upper()} active branch set to {branch['name']} (ID: {branch_id}) - VERIFIED")
 
         return {
             "success": True,
             "message": f"Active branch set to {branch['name']}",
             "new_active_branch_id": branch_id,
-            "new_active_branch_name": branch['name']
+            "new_active_branch_name": branch['name'],
+            "previous_branch_id": current_user['branch_id'],
+            "user_role": user["role"],
+            "verified": True
         }
 
     except HTTPException:

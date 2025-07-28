@@ -1,4 +1,4 @@
-# app/branches.py - Fixed with correct route order
+# app/branches.py - CLEAN VERSION with no conflicts
 
 from fastapi import APIRouter, Depends, HTTPException
 from app.database import get_connection
@@ -41,6 +41,7 @@ def get_public_branches():
 
 @router.get("/")
 def list_branches():
+    """Get all branches with basic info"""
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
@@ -57,9 +58,9 @@ def list_branches():
 
 @router.get("/all")
 def get_all_branches(user=Depends(get_current_user)):
-    """Get all branches for assignment purposes"""
-    if user["role"] != "head_coach":
-        raise HTTPException(status_code=403, detail="Only head coaches can view all branches")
+    """Get all branches for management purposes"""
+    if user["role"] not in ["head_coach", "admin"]:
+        raise HTTPException(status_code=403, detail="Only head coaches and admins can view all branches")
     
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -73,141 +74,96 @@ def get_all_branches(user=Depends(get_current_user)):
     conn.close()
     return branches
 
-# =================== PARAMETERIZED ROUTES (MUST BE LAST) ===================
-# These routes with path parameters should come AFTER specific routes
-
-@router.get("/{branch_id}")
-def get_branch(branch_id: int):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM branches WHERE id = %s", (branch_id,))
-    branch = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    if not branch:
-        raise HTTPException(status_code=404, detail="Branch not found")
-    return branch
-
-# =================== BRANCH SELECTION FOR HEAD COACH ===================
+# =================== DEPRECATED HEAD COACH ROUTES ===================
+# These are kept for backward compatibility but should use /coach/set-active-branch instead
 
 @router.post("/select-branch/{branch_id}")
 def select_branch_for_head_coach(branch_id: int, user=Depends(get_current_user)):
+    """
+    DEPRECATED: Use /coach/set-active-branch/{branch_id} instead
+    Kept for backward compatibility
+    """
     if user["role"] != "head_coach":
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=403, detail="Access denied - only head coaches")
 
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
     try:
+        print(f"⚠️ DEPRECATED ENDPOINT: Head coach {user['name']} using old branch selection")
+        print(f"🔄 Recommend switching to /coach/set-active-branch/{branch_id}")
+        
         # Verify branch exists
         cursor.execute("SELECT id, name FROM branches WHERE id = %s", (branch_id,))
         branch = cursor.fetchone()
         if not branch:
             raise HTTPException(status_code=404, detail="Branch not found")
 
-        # Update user's branch_id for session context
+        # Update user's branch_id
         cursor.execute("UPDATE users SET branch_id = %s WHERE id = %s", (branch_id, user["id"]))
         conn.commit()
 
-        return {"message": f"Successfully switched to {branch['name']}"}
-
-    finally:
-        cursor.close()
-        conn.close()
-
-@router.get("/coach/assigned-branches")
-def get_coach_assigned_branches(user=Depends(get_current_user)):
-    """
-    Get all branches a coach is assigned to.
-    A coach can only view their own assigned branches.
-    """
-    if user["role"] != "coach":
-        raise HTTPException(status_code=403, detail="Only coaches can access this resource.")
-
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    try:
-        cursor.execute("""
-            SELECT
-                b.id AS branch_id,
-                b.name AS branch_name,
-                b.address,
-                b.phone
-            FROM coach_assignments ca
-            JOIN branches b ON ca.branch_id = b.id
-            WHERE ca.user_id = %s
-            ORDER BY b.name
-        """, (user["id"],)) # Use user["id"] from get_current_user
-        assigned_branches = cursor.fetchall()
-
-        # Additionally, get the currently active branch for the coach
-        cursor.execute("""
-            SELECT
-                b.id AS current_branch_id,
-                b.name AS current_branch_name
-            FROM users u
-            JOIN branches b ON u.branch_id = b.id
-            WHERE u.id = %s
-        """, (user["id"],))
-        current_active_branch = cursor.fetchone()
-
         return {
-            "assigned_branches": assigned_branches,
-            "current_active_branch": current_active_branch
-        }
-
-    finally:
-        cursor.close()
-        conn.close()
-
-# =================== SET A COACH'S ACTIVE BRANCH ===================
-
-@router.post("/coach/set-active-branch/{branch_id}")
-def set_coach_active_branch(branch_id: int, user=Depends(get_current_user)):
-    """
-    Set the active branch for the logged-in coach.
-    The coach must be assigned to the branch they are trying to set as active.
-    """
-    if user["role"] != "coach":
-        raise HTTPException(status_code=403, detail="Only coaches can set their active branch.")
-
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    try:
-        # 1. Verify the branch_id exists and the coach is assigned to it
-        cursor.execute("""
-            SELECT ca.branch_id
-            FROM coach_assignments ca
-            WHERE ca.user_id = %s AND ca.branch_id = %s
-        """, (user["id"], branch_id))
-        is_assigned = cursor.fetchone()
-
-        if not is_assigned:
-            raise HTTPException(status_code=403, detail="You are not assigned to this branch.")
-
-        # 2. Update the user's active branch_id in the 'users' table
-        cursor.execute("""
-            UPDATE users
-            SET branch_id = %s
-            WHERE id = %s
-        """, (branch_id, user["id"]))
-        conn.commit()
-
-        # 3. Fetch the updated branch name to return
-        cursor.execute("SELECT name FROM branches WHERE id = %s", (branch_id,))
-        updated_branch_info = cursor.fetchone()
-
-        return {
-            "message": f"Active branch set to {updated_branch_info['name']} successfully.",
+            "success": True,
+            "message": f"Successfully switched to {branch['name']}",
             "new_active_branch_id": branch_id,
-            "new_active_branch_name": updated_branch_info['name']
+            "new_active_branch_name": branch['name'],
+            "deprecated_warning": "This endpoint is deprecated. Use /coach/set-active-branch/{branch_id} instead."
         }
 
+    except HTTPException:
+        conn.rollback()
+        raise
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to set active branch: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to select branch: {str(e)}")
+    finally:
+        cursor.close()
+        conn.close()
+
+# =================== REMOVED CONFLICTING COACH ROUTES ===================
+# These routes have been moved to /coach/ router to avoid conflicts:
+# - /coach/assigned-branches -> moved to coach router
+# - /coach/set-active-branch/{branch_id} -> moved to coach router
+
+# =================== PARAMETERIZED ROUTES (MUST BE LAST) ===================
+# These routes with path parameters should come AFTER specific routes
+
+@router.get("/{branch_id}")
+def get_branch(branch_id: int):
+    """Get detailed information about a specific branch"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        cursor.execute("""
+            SELECT 
+                id, 
+                name, 
+                address, 
+                phone, 
+                practice_days, 
+                video_url,
+                location_url,
+                created_at
+            FROM branches 
+            WHERE id = %s
+        """, (branch_id,))
+        branch = cursor.fetchone()
+        
+        if not branch:
+            raise HTTPException(status_code=404, detail="Branch not found")
+            
+        return {
+            "success": True,
+            "branch": branch
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error getting branch {branch_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get branch: {str(e)}")
     finally:
         cursor.close()
         conn.close()
