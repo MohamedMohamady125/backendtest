@@ -1,156 +1,183 @@
-# app/database.py - AGGRESSIVE CONNECTION OPTIMIZATION (Fixed)
+# app/database.py - FIXED CONNECTION POOL (No more exhaustion!)
 import mysql.connector
 from mysql.connector import pooling
 from contextlib import contextmanager
 from app.config import settings
 import logging
 import time
-import threading
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# AGGRESSIVE Connection pool configuration
+# FIXED Connection pool configuration
 DB_CONFIG = {
     'host': settings.DB_HOST,
     'user': settings.DB_USER,
     'password': settings.DB_PASSWORD,
     'database': settings.DB_NAME,
     'port': settings.DB_PORT,
-    'pool_name': 'aggressive_pool',
-    'pool_size': 30,  # Increased from 20
-    'pool_reset_session': False,  # Skip session reset for speed
+    'pool_name': 'stable_pool',
+    'pool_size': 20,  # Reduced to prevent exhaustion
+    'pool_reset_session': True,  # CHANGED: Reset sessions for safety
     'autocommit': False,
     'charset': 'utf8mb4',
     'use_unicode': True,
-    'connect_timeout': 30,  # Increased timeout
+    'connect_timeout': 30,
     'sql_mode': 'STRICT_TRANS_TABLES',
-    # PERFORMANCE OPTIMIZATIONS
     'buffered': True,
     'raise_on_warnings': False,
-    'get_warnings': False,
-    'connection_timeout': 30
+    'get_warnings': False
 }
 
-# Create larger connection pool
+# Create connection pool with error handling
 try:
     connection_pool = pooling.MySQLConnectionPool(**DB_CONFIG)
-    logger.info(f"✅ AGGRESSIVE connection pool created: {DB_CONFIG['pool_size']} connections")
-    
-    # Pre-warm the connection pool
-    connections = []
-    for i in range(5):  # Pre-create 5 connections
-        try:
-            conn = connection_pool.get_connection()
-            connections.append(conn)
-        except Exception as e:
-            logger.warning(f"Pre-warm connection {i} failed: {e}")
-    
-    # Return pre-warmed connections
-    for conn in connections:
-        conn.close()
-    
-    logger.info("✅ Connection pool pre-warmed")
-    
+    logger.info(f"✅ STABLE connection pool created: {DB_CONFIG['pool_size']} connections")
 except Exception as e:
-    logger.error(f"❌ Failed to create aggressive connection pool: {e}")
+    logger.error(f"❌ Failed to create connection pool: {e}")
     connection_pool = None
 
-# Global connection cache (risky but fast)
-_thread_local = threading.local()
-
-# LEGACY FUNCTION - Keep for backward compatibility
+# LEGACY FUNCTION - Fixed to return connections properly
 def get_connection():
     """
-    Legacy get_connection function - kept for backward compatibility
-    Other files still import this, so we need to keep it
+    Legacy get_connection function - FIXED to prevent pool exhaustion
     """
     if connection_pool:
-        return connection_pool.get_connection()
+        try:
+            return connection_pool.get_connection()
+        except Exception as e:
+            logger.error(f"❌ Failed to get connection from pool: {e}")
+            # Fallback to direct connection
+            return mysql.connector.connect(**{
+                k: v for k, v in DB_CONFIG.items() 
+                if k not in ['pool_name', 'pool_size', 'pool_reset_session']
+            })
     else:
         return mysql.connector.connect(**{
             k: v for k, v in DB_CONFIG.items() 
             if k not in ['pool_name', 'pool_size', 'pool_reset_session']
         })
 
-def get_cached_connection():
+@contextmanager
+def get_db_cursor(dictionary=True):
     """
-    AGGRESSIVE: Keep one connection per thread (reduces connection overhead)
-    WARNING: Use with caution in production
+    FIXED context manager - Properly returns connections to pool
     """
-    if not hasattr(_thread_local, 'connection') or not _thread_local.connection.is_connected():
+    connection = None
+    cursor = None
+    start_time = time.time()
+    
+    try:
+        # Get connection from pool
         if connection_pool:
-            _thread_local.connection = connection_pool.get_connection()
+            connection = connection_pool.get_connection()
         else:
-            _thread_local.connection = mysql.connector.connect(**{
+            connection = mysql.connector.connect(**{
                 k: v for k, v in DB_CONFIG.items() 
                 if k not in ['pool_name', 'pool_size', 'pool_reset_session']
             })
-    
-    return _thread_local.connection
-
-@contextmanager
-def get_db_cursor_aggressive(dictionary=True):
-    """
-    AGGRESSIVE VERSION - Reuses thread-local connections
-    """
-    start_time = time.time()
-    connection = None
-    
-    try:
-        connection = get_cached_connection()
+        
+        # Create cursor
         cursor = connection.cursor(dictionary=dictionary, buffered=True)
         
+        # Log slow connections
         connect_time = time.time() - start_time
-        if connect_time > 0.050:  # Only warn if > 50ms
-            logger.warning(f"⚠️ Connection still slow: {connect_time:.3f}s")
-        else:
-            logger.debug(f"✅ Fast connection: {connect_time:.3f}s")
+        if connect_time > 0.100:  # Warn if > 100ms
+            logger.warning(f"⚠️ Slow connection: {connect_time:.3f}s")
         
         yield cursor, connection
         
     except Exception as e:
         if connection:
-            connection.rollback()
-        logger.error(f"Database error: {e}")
+            try:
+                connection.rollback()
+            except:
+                pass
+        logger.error(f"❌ Database error: {e}")
         raise
     finally:
+        # CRITICAL: Always close cursor and connection
         if cursor:
-            cursor.close()
-        # DON'T close connection - keep it for reuse
+            try:
+                cursor.close()
+            except:
+                pass
+        
+        if connection:
+            try:
+                connection.close()  # This returns connection to pool
+            except:
+                pass
 
-# Keep your existing get_db_cursor for backward compatibility
-@contextmanager 
-def get_db_cursor(dictionary=True):
-    """Use the aggressive version"""
-    with get_db_cursor_aggressive(dictionary) as (cursor, connection):
-        yield cursor, connection
-
-# Connection health check
-def check_connection_health():
-    """Check and repair connections"""
-    try:
-        with get_db_cursor_aggressive() as (cursor, connection):
-            cursor.execute("SELECT 1")
-            return {"status": "healthy"}
-    except Exception as e:
-        # Reset thread-local connection on error
-        if hasattr(_thread_local, 'connection'):
-            delattr(_thread_local, 'connection')
-        return {"status": "unhealthy", "error": str(e)}
-
-# Startup optimization
-def warm_connection_pool():
-    """Pre-warm connections on startup"""
-    logger.info("🔥 Warming up connection pool...")
-    
-    for i in range(10):
+# Connection pool monitoring
+def get_pool_status():
+    """Monitor connection pool health"""
+    if connection_pool:
         try:
-            with get_db_cursor_aggressive() as (cursor, connection):
-                cursor.execute("SELECT 1")
-            logger.info(f"✅ Warmed connection {i+1}")
+            # Try to get a connection to test pool health
+            test_conn = connection_pool.get_connection()
+            test_conn.close()
+            
+            return {
+                "status": "healthy",
+                "pool_size": connection_pool.pool_size,
+                "pool_name": connection_pool.pool_name
+            }
         except Exception as e:
-            logger.warning(f"❌ Failed to warm connection {i+1}: {e}")
+            return {
+                "status": "unhealthy", 
+                "error": str(e),
+                "pool_size": connection_pool.pool_size
+            }
+    else:
+        return {"status": "no_pool", "error": "Connection pool not initialized"}
+
+# Emergency pool reset function
+def reset_connection_pool():
+    """Emergency function to reset connection pool if exhausted"""
+    global connection_pool
     
-    logger.info("🔥 Connection pool warmed!")
+    logger.warning("🔄 Resetting connection pool due to exhaustion...")
+    
+    try:
+        # Close existing pool
+        if connection_pool:
+            # Note: MySQL connector doesn't have a direct way to close pool
+            # But creating a new one should work
+            pass
+            
+        # Create new pool
+        connection_pool = pooling.MySQLConnectionPool(**DB_CONFIG)
+        logger.info("✅ Connection pool reset successfully")
+        
+        return {"status": "reset_successful"}
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to reset connection pool: {e}")
+        connection_pool = None
+        return {"status": "reset_failed", "error": str(e)}
+
+# Health check function
+def check_database_health():
+    """Check database and connection pool health"""
+    try:
+        with get_db_cursor() as (cursor, connection):
+            cursor.execute("SELECT 1 as health_check")
+            result = cursor.fetchone()
+            
+            pool_status = get_pool_status()
+            
+            return {
+                "database": "healthy",
+                "query_result": result,
+                "pool_status": pool_status,
+                "timestamp": time.time()
+            }
+    except Exception as e:
+        return {
+            "database": "unhealthy", 
+            "error": str(e),
+            "pool_status": get_pool_status(),
+            "timestamp": time.time()
+        }
