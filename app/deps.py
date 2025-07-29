@@ -1,4 +1,4 @@
-# app/deps.py - BULLETPROOF VERSION
+# app/deps.py - FIXED VERSION (without non-existent columns)
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
@@ -49,13 +49,13 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         )
     
     # ✅ CRITICAL: Always get FRESH user data from database
-    # This prevents stale user info in JWT tokens
+    # ✅ FIXED: Only select columns that actually exist
     with get_db_cursor() as (cursor, connection):
         try:
             cursor.execute("""
                 SELECT 
                     id, name, email, phone, role, branch_id, approved,
-                    password_hash, created_at, updated_at
+                    password_hash, created_at
                 FROM users 
                 WHERE id = %s
             """, (user_id,))
@@ -73,6 +73,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             user_safe = dict(user)
             user_safe.pop('password_hash', None)
             
+            print(f"✅ Fresh user data retrieved: {user_safe['name']} ({user_safe['email']})")
             return user_safe
             
         except HTTPException:
@@ -92,7 +93,7 @@ def get_fresh_user_data(user_id: int):
             cursor.execute("""
                 SELECT 
                     id, name, email, phone, role, branch_id, approved,
-                    created_at, updated_at
+                    created_at
                 FROM users 
                 WHERE id = %s
             """, (user_id,))
