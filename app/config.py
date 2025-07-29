@@ -54,10 +54,23 @@ class Settings:
         
         # Additional debug - show all VAPID-related env vars
         print("🔧 All environment variables containing 'VAPID':")
+        vapid_found = False
         for key, value in os.environ.items():
             if 'VAPID' in key:
                 preview = value[:20] + "..." if len(value) > 20 else value
                 print(f"   {key}: {preview}")
+                vapid_found = True
+        
+        if not vapid_found:
+            print("   ❌ NO VAPID VARIABLES FOUND!")
+        
+        # Show ALL environment variables (first 10 for debugging)
+        print("🔧 First 10 environment variables for debugging:")
+        for i, (key, value) in enumerate(os.environ.items()):
+            if i >= 10:
+                break
+            preview = value[:30] + "..." if len(value) > 30 else value
+            print(f"   {key}: {preview}")
 
 # Create global settings instance
 settings = Settings()
