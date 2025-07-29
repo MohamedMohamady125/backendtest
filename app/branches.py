@@ -129,6 +129,8 @@ def select_branch_for_head_coach(branch_id: int, user=Depends(get_current_user))
 # =================== PARAMETERIZED ROUTES (MUST BE LAST) ===================
 # These routes with path parameters should come AFTER specific routes
 
+# ✅ FIXED: Update the get_branch endpoint in your branches.py
+
 @router.get("/{branch_id}")
 def get_branch(branch_id: int):
     """Get detailed information about a specific branch"""
@@ -153,10 +155,13 @@ def get_branch(branch_id: int):
         
         if not branch:
             raise HTTPException(status_code=404, detail="Branch not found")
-            
+        
+        print(f"✅ Retrieved branch: {branch['name']} (ID: {branch_id})")
+        
+        # ✅ FIXED: Return data directly under "data" key (not "branch")
         return {
             "success": True,
-            "branch": branch
+            "data": branch  # ✅ Changed from "branch": branch to "data": branch
         }
         
     except HTTPException:
@@ -164,6 +169,39 @@ def get_branch(branch_id: int):
     except Exception as e:
         print(f"❌ Error getting branch {branch_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get branch: {str(e)}")
+    finally:
+        cursor.close()
+        conn.close()
+
+# ✅ ALSO ADD: Endpoint specifically for getting branch name quickly
+@router.get("/{branch_id}/name")
+def get_branch_name(branch_id: int):
+    """Get just the branch name - optimized for quick lookups"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        cursor.execute("SELECT id, name FROM branches WHERE id = %s", (branch_id,))
+        branch = cursor.fetchone()
+        
+        if not branch:
+            raise HTTPException(status_code=404, detail="Branch not found")
+        
+        print(f"✅ Retrieved branch name: {branch['name']} (ID: {branch_id})")
+        
+        return {
+            "success": True,
+            "data": {
+                "id": branch['id'],
+                "name": branch['name']
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error getting branch name {branch_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get branch name: {str(e)}")
     finally:
         cursor.close()
         conn.close()
