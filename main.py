@@ -500,6 +500,25 @@ async def replace_all_performance_logs_endpoint(
     """OPTIMIZED performance logs replacement"""
     return replace_all_performance_logs(data, user)
 
+# Add this to your main.py for debugging
+@app.get("/debug/files")
+def debug_files():
+    """Debug: Show what files are available"""
+    files = {}
+    if os.path.exists("web"):
+        files["web_dir_exists"] = True
+        files["web_contents"] = os.listdir("web")
+        if os.path.exists("web/web-push-sw.js"):
+            files["service_worker_exists"] = True
+            with open("web/web-push-sw.js", "r") as f:
+                files["service_worker_preview"] = f.read()[:200] + "..."
+        else:
+            files["service_worker_exists"] = False
+    else:
+        files["web_dir_exists"] = False
+    
+    return files
+
 @app.get("/")
 def root():
     """Root endpoint - serve Flutter app"""
