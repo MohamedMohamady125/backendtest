@@ -57,7 +57,7 @@ def create_invite_link(user=Depends(get_current_user)):
         conn.commit()
         
         # Create the invite URL (adjust base URL as needed)
-        base_url = "https://ornate-banoffee-460953.netlify.app"  # Replace with your actual domain
+        base_url = "https://backendtest-production-acc4.up.railway.app"  # Replace with your actual domain
         invite_url = f"{base_url}/invite/{invite_token}"
         
         print(f"✅ Invite link created: {invite_url}")
