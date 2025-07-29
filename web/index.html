@@ -118,7 +118,8 @@
         console.log('📦 Push subscription created:', JSON.stringify(subscription, null, 2));
 
         // ✅ Send subscription to backend - FIXED: Added 'const response ='
-        const response = await fetch('https://backendtest-xlio.onrender.com/notifications/webpush/subscribe', {
+        // ✅ CORRECT - Railway URL
+const response = await fetch('https://backendtest-production-acc4.up.railway.app/notifications/webpush/subscribe', {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
