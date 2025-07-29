@@ -145,7 +145,6 @@ def branch_switch_transaction(user_id: int):
             try:
                 # Start explicit transaction with highest isolation
                 cursor.execute("START TRANSACTION")
-                cursor.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
                 
                 # Lock the specific user row
                 cursor.execute("""
